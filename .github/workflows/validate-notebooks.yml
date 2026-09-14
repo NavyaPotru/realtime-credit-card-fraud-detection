@@ -31,46 +31,76 @@ jobs:
           from pathlib import Path
           import nbformat
 
-          required = {
-              "01_realtime_bronze_ingestion.ipynb",
-              "02_realtime_validation.ipynb",
-              "03_realtime_enrichment_scoring.ipynb",
-              "04_fraud_case_processing.ipynb",
-              "05_monitoring_reconciliation.ipynb",
+          required_stems = {
+              "01_realtime_bronze_ingestion",
+              "02_realtime_validation",
+              "03_realtime_enrichment_scoring",
+              "04_fraud_case_processing",
+              "05_monitoring_reconciliation",
           }
 
-          notebook_dir = Path("notebooks")
-          existing = {path.name for path in notebook_dir.glob("*.ipynb")}
+          supported_extensions = {".ipynb", ".py", ".sql"}
 
-          missing = required - existing
+          notebook_files = [
+              path
+              for path in Path(".").rglob("*")
+              if path.is_file()
+              and path.suffix.lower() in supported_extensions
+              and ".git" not in path.parts
+          ]
+
+          discovered = {
+              path.stem: path
+              for path in notebook_files
+          }
+
+          missing = required_stems - discovered.keys()
+
+          print("Discovered notebook files:")
+          for path in sorted(notebook_files):
+              print(f"  {path}")
+
           if missing:
               raise SystemExit(
                   f"Missing required notebooks: {sorted(missing)}"
               )
 
-          for path in sorted(notebook_dir.glob("*.ipynb")):
-              notebook = nbformat.read(path, as_version=4)
+          for notebook_name in sorted(required_stems):
+              path = discovered[notebook_name]
 
-              if not notebook.cells:
-                  raise SystemExit(f"{path} is empty")
+              if path.suffix == ".ipynb":
+                  notebook = nbformat.read(path, as_version=4)
 
-              for index, cell in enumerate(notebook.cells, start=1):
-                  if cell.cell_type != "code":
-                      continue
+                  if not notebook.cells:
+                      raise SystemExit(f"{path} is empty")
 
-                  source = cell.source.strip()
+                  for index, cell in enumerate(
+                      notebook.cells,
+                      start=1
+                  ):
+                      if cell.cell_type != "code":
+                          continue
 
-                  # Databricks SQL and magic cells are not Python.
-                  if not source or source.startswith("%"):
-                      continue
+                      source = cell.source.strip()
 
-                  try:
-                      compile(source, str(path), "exec")
-                  except SyntaxError as error:
-                      raise SystemExit(
-                          f"Python syntax error in {path}, "
-                          f"cell {index}: {error}"
-                      )
+                      if not source or source.startswith("%"):
+                          continue
+
+                      try:
+                          compile(source, str(path), "exec")
+                      except SyntaxError as error:
+                          raise SystemExit(
+                              f"Python syntax error in {path}, "
+                              f"cell {index}: {error}"
+                          )
+
+              elif path.suffix == ".py":
+                  source = path.read_text(encoding="utf-8")
+                  compile(source, str(path), "exec")
+
+              elif path.suffix == ".sql":
+                  if not path.read_text(encoding="utf-8").strip():
+                      raise SystemExit(f"{path} is empty")
 
               print(f"Validated: {path}")
 
